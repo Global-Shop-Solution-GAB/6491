@@ -1,0 +1,424 @@
+Program.Sub.Preflight.Start
+Program.External.Include.Library("1500.Lib")
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+F.Intrinsic.Control.SetErrorHandler("Main_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String,"")
+
+F.Intrinsic.Control.SelectCase(V.Caller.Hook)
+	'populate hook
+	F.Intrinsic.Control.Case(28321)
+		V.Passed.000003.Set("Calc Costs")
+'		V.Passed.000004.Set("Calc Pricing")
+		V.Passed.000005.Set("Print Report")
+		F.Intrinsic.Control.CallSub(Exit)
+		
+	'Script 1
+	F.Intrinsic.Control.Case(28322)
+		F.Intrinsic.Control.CallSub(Calc_Cost)		
+		F.Intrinsic.Control.CallSub(Exit)
+		
+'	'Script 2
+'	F.Intrinsic.Control.Case(28323)
+'		F.Intrinsic.Control.CallSub(Calc_Price)
+'		F.Intrinsic.Control.CallSub(Exit)
+	
+	'Script 3
+	F.Intrinsic.Control.Case(28324)
+		
+		F.Intrinsic.Control.CallSub(Print_Report)
+		
+'	'Report Hook
+'	F.Intrinsic.Control.Case(16090)
+'		F.Intrinsic.Control.If(V.Passed.BIP_RptID,=,"000007")
+'			F.Intrinsic.Control.CallSub(Update_Report_Data)
+'		F.Intrinsic.Control.EndIf
+		
+	F.Intrinsic.Control.CaseElse
+		F.Intrinsic.Control.End
+		
+F.Intrinsic.Control.EndSelect
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Main_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	F.Intrinsic.String.Build("Project: GCG_6491_Quote_Breakdown.g2u {0}{0}Subroutine: {1}{0}Error Occurred {2} with description {3}",V.Ambient.NewLine,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Exit)
+Function.Intrinsic.Control.EndIf
+Program.Sub.Main.End
+
+Program.Sub.Exit.Start
+F.Intrinsic.Control.SetErrorHandler("Exit_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String,"")
+
+F.Intrinsic.Control.End
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Exit_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	F.Intrinsic.Control.End
+Function.Intrinsic.Control.EndIf
+Program.Sub.Exit.End
+
+Program.Sub.Calc_Cost.Start
+F.Intrinsic.Control.SetErrorHandler("Calc_Cost_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String,"")
+V.Local.sData.Declare(String,"")
+V.Local.i.Declare(Long,0)
+V.Local.iRows.Declare(Long,0)
+V.Local.iIndex.Declare(Long,0)
+V.Local.sTempData.Declare(String,0)
+V.Local.fValue.Declare(Float,0)
+V.Local.fTemp1.Declare(Float,0)
+V.Local.fTemp2.Declare(Float,0)
+V.Local.iC.Declare(Long,0)
+V.Local.fAllow.Declare(Float,0)
+V.Local.fComm.Declare(Float,0)
+V.Local.sRouter.Declare(String,"")
+V.Local.sSql.Declare(String,"")
+V.Local.fCost.Declare(FLoat,0)
+
+V.Local.sRouter.Set(V.Passed.000027)
+F.Intrinsic.String.RPad(V.Local.sRouter," ",17,V.Local.sRouter)
+F.Intrinsic.String.Build("{0}{1}",V.Local.sRouter,V.Passed.000007,V.Local.sRouter)
+V.Local.sRouter.Set(V.Local.sRouter.Trim)
+
+'Commission
+F.ODBC.Connection!Con.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+F.Intrinsic.String.Build("Select Rate From V_Router_Line Where Router = '{0}' and LMO = 'O' and Part_WC_Outside = 'BROKERAGE'",V.Local.sRouter,V.Local.sSql)
+F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSql,V.Local.fComm)
+
+'Allowance
+F.Intrinsic.String.Build("Select Rate From V_Router_Line Where Router = '{0}' and LMO = 'O' and Part_WC_Outside = 'ALLOWANCE'",V.Local.sRouter,V.Local.sSql)
+F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSql,V.Local.fAllow)
+
+F.Intrinsic.String.Build("Select Price_1_2 From V_RTR_PRICE_1_4 Where Router = '{0}'",V.Local.sRouter,V.Local.sSql)
+F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSql,V.Local.fCost)
+
+F.ODBC.Connection!Con.Close
+
+F.Intrinsic.BDF.Load("AUX001","AUX001")
+F.Intrinsic.BDF.Clone("AUX001","CLONE")
+
+F.Intrinsic.BDF.ReadRowCount("AUX001",V.Local.iRows)
+
+'Variable definitions:
+'p = Price
+'c = Material and labor costs on the router (excluding the specified outside services)
+'t = Total cost 
+
+'calculating Cost
+'Formula t = c+(0.05p)+(0.10p)
+
+'P = Index 3
+'C = Index 4
+F.Intrinsic.Control.For(V.Local.i,1,V.Local.iRows,1)
+	F.Intrinsic.Math.Sub(V.Local.i,1,V.Local.iIndex)
+	F.Intrinsic.BDF.ReadRow("AUX001",V.Local.iIndex,V.Local.sData)
+	V.Local.sTempData.Redim(0,0)
+	F.Intrinsic.String.Split(V.Local.sData,"|~|",V.Local.sTempData)
+
+	F.Intrinsic.Math.Mult(V.Local.fComm,V.Local.sTempData(3),V.Local.fTemp1)
+	F.Intrinsic.Math.Mult(V.Local.fAllow,V.Local.sTempData(3),V.Local.fTemp2)
+	F.Intrinsic.Math.Add(V.Local.fCost,V.Local.fTemp1,V.Local.fTemp2,V.Local.fValue)
+	V.Local.sTempData(4).Set(V.Local.fValue)
+	F.Intrinsic.Math.Sub(V.Local.sTempData(3),V.Local.sTempData(4),V.Local.fValue)
+	F.Intrinsic.Math.Div(V.Local.fValue,V.Local.sTempData(3),V.Local.fValue)
+	F.Intrinsic.Math.Round(V.Local.fValue,2,V.Local.fValue)
+	F.Intrinsic.Math.Mult(V.Local.fValue,100,V.Local.fValue)
+	V.Local.sTempData(5).Set(V.Local.fValue)
+	F.Intrinsic.Control.For(V.Local.iC,1,V.Local.sTempData.UBound,1)
+		F.Intrinsic.String.Build("{0}|~|{1}",V.Local.sTempData,V.Local.sTempData(V.Local.iC),V.Local.sTempData)
+	F.Intrinsic.Control.Next(V.Local.iC)
+	F.Intrinsic.BDF.WriteRow("CLONE",V.Local.sTempData)
+F.Intrinsic.Control.Next(V.Local.i)
+
+Function.Intrinsic.BDF.Save("CLONE","AUX001")
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Calc_Cost_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	F.Intrinsic.String.Build("Project: GCG_6491_Quote_Breakdown.g2u {0}{0}Subroutine: {1}{0}Error Occurred {2} with description {3}",V.Ambient.NewLine,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Exit)
+Function.Intrinsic.Control.EndIf
+Program.Sub.Calc_Cost.End
+
+Program.Sub.Calc_Price.Start
+F.Intrinsic.Control.SetErrorHandler("Calc_Price_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String,"")
+V.Local.sData.Declare(String,"")
+V.Local.i.Declare(Long,0)
+V.Local.iRows.Declare(Long,0)
+V.Local.iIndex.Declare(Long,0)
+V.Local.sTempData.Declare(String,0)
+V.Local.sSql.Declare(String,"")
+V.Local.sRouter.Declare(String,"")
+V.Local.fComm.Declare(Float,0)
+V.Local.fAllow.Declare(Float,0)
+V.Local.fValue.Declare(Float,0)
+V.Local.fGPercnet.Declare(Float,0)
+V.Local.iC.Declare(Long,0)
+V.Local.fCost.Declare(Float,0)
+
+V.Local.sRouter.Set(V.Passed.000027)
+F.Intrinsic.String.RPad(V.Local.sRouter," ",17,V.Local.sRouter)
+F.Intrinsic.String.Build("{0}{1}",V.Local.sRouter,V.Passed.000007,V.Local.sRouter)
+V.Local.sRouter.Set(V.Local.sRouter.Trim)
+
+'Commission
+F.ODBC.Connection!Con.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+F.Intrinsic.String.Build("Select Rate From V_Router_Line Where Router = '{0}' and LMO = 'O' and Part_WC_Outside = 'BROKERAGE'",V.Local.sRouter,V.Local.sSql)
+F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSql,V.Local.fComm)
+
+'Allowance
+F.Intrinsic.String.Build("Select Rate From V_Router_Line Where Router = '{0}' and LMO = 'O' and Part_WC_Outside = 'ALLOWANCE'",V.Local.sRouter,V.Local.sSql)
+F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSql,V.Local.fAllow)
+
+F.Intrinsic.String.Build("Select Price_1_2 From V_RTR_PRICE_1_4 Where Router = '{0}'",V.Local.sRouter,V.Local.sSql)
+F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSql,V.Local.fCost)
+
+F.ODBC.Connection!Con.Close
+
+F.Intrinsic.BDF.Load("AUX001","AUX001")
+F.Intrinsic.BDF.Clone("AUX001","CLONE")
+
+F.Intrinsic.BDF.ReadRowCount("AUX001",V.Local.iRows)
+
+'Variable definitions:
+'p = Price
+'c = Material and labor costs on the router (excluding the specified outside services)
+'m = Profit margin, represented as a decimal (ex. 20% margin = 0.2)
+'b = Commission, represented as a decimal. Pulled from the BROKERAGE line on the
+'router.
+'a = Allowance, represented as a decimal. Pulled from the ALLOWANCE line on the router
+
+'calculating Price
+'p = (c*(1+m)) / ((1-b-a)-((b+a)*m)) 
+
+'P = Index 3
+'C = Index 4
+'m = Index 5
+
+F.Intrinsic.Control.For(V.Local.i,1,V.Local.iRows,1)
+	F.Intrinsic.Math.Sub(V.Local.i,1,V.Local.iIndex)
+	F.Intrinsic.BDF.ReadRow("AUX001",V.Local.iIndex,V.Local.sData)
+	V.Local.sTempData.Redim(0,0)
+	F.Intrinsic.String.Split(V.Local.sData,"|~|",V.Local.sTempData)
+
+	F.Intrinsic.Math.Mult(V.Local.sTempData(5),.01,V.Local.fGPercnet)
+	F.Intrinsic.Math.Evaluate("([V.Local.fCost]*(1+[V.Local.fGPercnet])) / ((1-[V.Local.fComm]-[V.Local.fAllow])-(([V.Local.fComm]+[V.Local.fAllow])*[V.Local.fGPercnet])) ",V.Local.fValue)
+	V.Local.sTempData(3).Set(V.Local.fValue)
+	F.Intrinsic.Control.For(V.Local.iC,1,V.Local.sTempData.UBound,1)
+		F.Intrinsic.String.Build("{0}|~|{1}",V.Local.sTempData,V.Local.sTempData(V.Local.iC),V.Local.sTempData)
+	F.Intrinsic.Control.Next(V.Local.iC)
+	F.Intrinsic.BDF.WriteRow("CLONE",V.Local.sTempData)
+F.Intrinsic.Control.Next(V.Local.i)
+
+Function.Intrinsic.BDF.Save("CLONE","AUX001")
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Calc_Price_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	F.Intrinsic.String.Build("Project: GCG_6491_Quote_Breakdown.g2u {0}{0}Subroutine: {1}{0}Error Occurred {2} with description {3}",V.Ambient.NewLine,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Exit)
+Function.Intrinsic.Control.EndIf
+Program.Sub.Calc_Price.End
+
+Program.Sub.Update_Report_Data.Start
+F.Intrinsic.Control.SetErrorHandler("Update_Report_Data_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String,"")
+V.Local.sSql.Declare(String,"")
+V.Local.sRouter.Declare(String,"")
+V.Local.i.Declare(Long,0)
+V.Local.iC.Declare(Long,0)
+V.Local.sFilter.Declare(String,"")
+V.Local.fSeq.Declare(Float,0)
+V.Local.sSeq.Declare(String,"")
+V.Local.fComm.Declare(Float,0)
+V.Local.fAllow.Declare(Float,0)
+
+V.Local.sRouter.Set(V.Passed.000027)
+F.Intrinsic.String.RPad(V.Local.sRouter," ",17,V.Local.sRouter)
+F.Intrinsic.String.Build("{0}{1}",V.Local.sRouter,V.Passed.000007,V.Local.sRouter)
+V.Local.sRouter.Set(V.Local.sRouter.Trim)
+
+F.ODBC.Connection!Con.OpenCompanyConnection
+
+'Commission
+F.Intrinsic.String.Build("Select Rate From V_Router_Line Where Router = '{0}' and LMO = 'O' and rtrim(ucase(Sort_Code)) = 'BROKERAGE'",V.Local.sRouter,V.Local.sSql)
+F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSql,V.Local.fComm)
+
+'Allowance
+F.Intrinsic.String.Build("Select Rate From V_Router_Line Where Router = '{0}' and LMO = 'O' and rtrim(ucase(Sort_Code)) = 'ALLOWANCE'",V.Local.sRouter,V.Local.sSql)
+F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSql,V.Local.fAllow)
+
+F.Intrinsic.String.Build("select * from BI_QUOTE_BRKDWN Where TRMNL = '{0}'Order By Sequence",V.Caller.Terminal,V.Local.sSql)
+
+F.Data.DataTable.CreateFromSQL("Quote","con",V.Local.sSql,True)
+F.Data.DataTable.AddColumn("Quote","Seq",Float)
+
+F.Intrinsic.Control.If(V.DataTable.Quote.RowCount--,<>,-1)
+	F.Intrinsic.Control.For(V.Local.i,0,V.DataTable.Quote.RowCount--,1)
+		F.Intrinsic.Math.Mult(V.DataTable.Quote(V.Local.i).Sequence!FieldValLong,10,V.Local.fSeq)
+		F.Data.DataTable.SetValue("Quote",V.Local.i,"Seq",V.Local.fSeq)
+	F.Intrinsic.Control.Next(V.Local.i)
+	F.Data.DataView.Create("Quote","VQuote",22,"","Sequence")
+	F.Data.DataView.ToDataTableDistinct("Quote","VQuote","Router","Router",True)
+	F.Data.DataView.Close("Quote","VQuote")
+	F.Intrinsic.Control.For(V.Local.i,0,V.DataTable.Router.RowCount--,1)
+		F.Intrinsic.String.Build("Router = '{0}' and Rec_Type = 'DD'",V.DataTable.Router(V.Local.i).Router!FieldValTrim,V.Local.sFilter)
+		F.Data.DataView.Create("Quote","VQuote",22,V.Local.sFilter,"Sequence")
+		V.Local.fSeq.Set(V.DataView.Quote!VQuote(V.DataView.Quote!VQuote.RowCount--).Seq!FieldValLong)
+		F.Intrinsic.Math.Sub(V.Local.fSeq.Long,.1,V.Local.fSeq)
+'		F.Intrinsic.String.LPad(V.Local.fSeq,"0",11,V.Local.sSeq)
+		V.Local.sSeq.Set(V.Local.fSeq)
+		F.Data.DataTable.AddRow("Quote","Seq",V.Local.sSeq,"Line_Titl_1","Brokerage","Rec_Type","E","Scrap_Rate","0.00","Commission","0.00","RT_Type","I","RTR_SEQ","000000","WC_PART","INSP","Minimum","0.00","Setup","0.0000","Freq","0","Runtime","0.0000","Cost_UM","0.000000","Cost_PC","0.000000","Run_Sec_Pc","0.0000","Run_Hrs_Pc","0.0000","Run_Min_Pc","0.0000")
+		F.Data.DataTable.SetValue("Quote",V.DataTable.Quote.RowCount--,"Qty_1",V.Local.fComm,"Qty_2","0.0000","Qty_3","0.0000","Qty_4","0.0000","Qty_5","0.0000","Qty_6","0.0000","Qty_7","0.0000","Qty_8","0.0000","Qty_9","0.0000","Qty_10","0.0000","Low","0.0000","High","0.0000","Unit_Price","0.0000","Crew","0.0000")
+		F.Data.DataTable.SetValue("Quote",V.DataTable.Quote.RowCount--,"TRMNL",V.Caller.Terminal,"RPTID",V.DataView.Quote!VQuote(V.DataView.Quote!VQuote.RowCount--).RPTID!FieldValTrim,"Router",V.DataTable.Router(V.Local.i).Router!FieldValTrim,"Customer",V.DataView.Quote!VQuote(V.DataView.Quote!VQuote.RowCount--).Customer!FieldValTrim)
+		F.Data.DataTable.SetValue("Quote",V.DataTable.Quote.RowCount--,"C_Rec",V.DataView.Quote!VQuote(V.DataView.Quote!VQuote.RowCount--).C_Rec!FieldVal,"Cust_Part",V.DataView.Quote!VQuote(V.DataView.Quote!VQuote.RowCount--).Cust_Part!FieldValTrim,"CPart_Desc",V.DataView.Quote!VQuote(V.DataView.Quote!VQuote.RowCount--).CPart_Desc!FieldValTrim)
+		F.Intrinsic.Math.Sub(V.Local.fSeq,.1,V.Local.fSeq)
+'		F.Intrinsic.String.LPad(V.Local.fSeq,"0",11,V.Local.sSeq)
+		V.Local.sSeq.Set(V.Local.fSeq)
+		F.Data.DataTable.AddRow("Quote","Seq",V.Local.sSeq,"Line_Titl_1","Allowance","Rec_Type","E","Scrap_Rate","0.00","Commission","0.00","RT_Type","I","RTR_SEQ","000000","WC_PART","INSP","Minimum","0.00","Setup","0.0000","Freq","0","Runtime","0.0000","Cost_UM","0.000000","Cost_PC","0.000000","Run_Sec_Pc","0.0000","Run_Hrs_Pc","0.0000","Run_Min_Pc","0.0000")
+		F.Data.DataTable.SetValue("Quote",V.DataTable.Quote.RowCount--,"Qty_1",V.Local.fAllow,"Qty_2","0.0000","Qty_3","0.0000","Qty_4","0.0000","Qty_5","0.0000","Qty_6","0.0000","Qty_7","0.0000","Qty_8","0.0000","Qty_9","0.0000","Qty_10","0.0000","Low","0.0000","High","0.0000","Unit_Price","0.0000","Crew","0.0000")
+		F.Data.DataTable.SetValue("Quote",V.DataTable.Quote.RowCount--,"TRMNL",V.Caller.Terminal,"RPTID",V.DataView.Quote!VQuote(V.DataView.Quote!VQuote.RowCount--).RPTID!FieldValTrim,"Router",V.DataTable.Router(V.Local.i).Router!FieldValTrim,"Customer",V.DataView.Quote!VQuote(V.DataView.Quote!VQuote.RowCount--).Customer!FieldValTrim)
+		F.Data.DataTable.SetValue("Quote",V.DataTable.Quote.RowCount--,"C_Rec",V.DataView.Quote!VQuote(V.DataView.Quote!VQuote.RowCount--).C_Rec!FieldVal,"Cust_Part",V.DataView.Quote!VQuote(V.DataView.Quote!VQuote.RowCount--).Cust_Part!FieldValTrim,"CPart_Desc",V.DataView.Quote!VQuote(V.DataView.Quote!VQuote.RowCount--).CPart_Desc!FieldValTrim)
+		F.Data.DataView.Close("Quote","VQuote")
+	F.Intrinsic.Control.Next(V.Local.i)
+	F.Data.DataTable.Close("Router")
+F.Intrinsic.Control.Else
+	F.ODBC.Connection!Con.Close
+	F.Intrinsic.Control.CallSub(Exit)
+F.Intrinsic.Control.EndIf
+
+F.Data.DataView.Create("Quote","VQuote",22,"","Seq")
+F.Intrinsic.Control.For(V.Local.i,0,V.DataView.Quote!VQuote.RowCount--,1)
+	F.Intrinsic.Math.Add(V.Local.i,1,V.Local.fSeq)
+	F.Intrinsic.String.LPad(V.Local.fSeq.Long,"0",9,V.Local.sSeq)
+	F.Data.DataView.SetValue("Quote","VQuote",V.Local.i,"Sequence",V.Local.sSeq)
+f.Intrinsic.Control.Next(v.Local.i)
+
+F.Data.DataTable.RemoveColumn("Quote","Seq")
+
+F.Intrinsic.String.Build("Delete From BI_QUOTE_BRKDWN Where TRMNL = '{0}'",V.Caller.Terminal,V.Local.sSql)
+F.ODBC.Connection!Con.Execute(V.Local.sSql)
+
+F.Data.DataTable.SaveToDB("Quote","con","BI_QUOTE_BRKDWN","",128)
+
+F.ODBC.Connection!Con.Close
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Update_Report_Data_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	F.Intrinsic.String.Build("Project: GCG_6491_Quote_Breakdown.g2u {0}{0}Subroutine: {1}{0}Error Occurred {2} with description {3}",V.Ambient.NewLine,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Exit)
+Function.Intrinsic.Control.EndIf
+Program.Sub.Update_Report_Data.End
+
+Program.Sub.Print_Report.Start
+F.Intrinsic.Control.SetErrorHandler("Print_Report_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String,"")
+V.Local.iRows.Declare(Long,0)
+V.Local.iBIRunID.Declare(Long,0)
+V.Local.iRPTID.Declare(Long,0)
+V.Local.iLogID.Declare(Long,0)
+V.Local.iRet.Declare(Long,0)
+V.Local.i.Declare(Long,0)
+V.Local.iIndex.Declare(Long,0)
+V.Local.sData.Declare(String,"")
+V.Local.sRouter.Declare(String,"")
+V.Local.sDesc.Declare(String,"")
+V.Local.sFile.Declare(String,"")
+
+V.Local.sRouter.Set(V.Passed.000027)
+F.Intrinsic.String.RPad(V.Local.sRouter," ",17,V.Local.sRouter)
+F.Intrinsic.String.Build("{0}{1}",V.Local.sRouter,V.Passed.000007,V.Local.sRouter)
+V.Local.sRouter.Set(V.Local.sRouter.Trim)
+V.Local.sDesc.Set(V.Passed.000028)
+
+F.Data.DataTable.AddRow("1500","ROUTER",V.Local.sRouter.Trim,"Quantity",1)
+F.Intrinsic.Control.CallSub(1500sync)
+
+F.Intrinsic.String.Build("{0}\{1}{2}PRICING.OUT",v.Caller.FilesDir,v.Caller.User.Trim,v.Caller.Terminal.Trim,v.Local.sFile)
+F.Intrinsic.File.File2String(V.Local.sFile,V.Local.sData)
+		
+F.Data.DataTable.CreateFromString("ROUTER",V.Local.sData,"TYPE*!*ROUTER*!*QTY*!*DIR_COST*!*COST*!*MATERIAL*!*OUTSIDE*!*LABOR*!*LABOR_HOURS*!*OVERHEAD*!*TIME_QTY*!*GP%-1*!*PRICE-1*!*GP%-2*!*PRICE-2*!*GP%-3*!*PRICE-3*!*GP%-4*!*PRICE-4*!*SELL3","STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING*!*STRING","*!*",V.Ambient.NewLine,True)
+F.Data.DataTable.AddColumn("ROUTER","BIRUNID",Long)
+
+F.Data.DataView.Create("Router","VRouter",22,"Type = ''","")
+F.Intrinsic.Control.If(V.DataView.ROUTER!VRouter.RowCount--,<>,-1)
+	F.Intrinsic.Control.For(V.Local.i,V.DataView.ROUTER!VRouter.RowCount--,0,-1)
+		F.Data.DataTable.DeleteRow("Router",V.DataView.ROUTER!VRouter(V.Local.i).DataTableIndex)
+	F.Intrinsic.Control.Next(V.Local.i)
+F.Intrinsic.Control.EndIf
+
+F.ODBC.Connection!Con.OpenCompanyConnection
+
+F.Data.DataTable.CreateFromSQL("Quote","con","select * from GCG_6491_Quote_Brkdn Where Router = '-1zz93'",True)
+
+F.Global.BI.GetRunID(V.Local.iBIRunID)
+
+F.Global.BI.GetIDFromName("GCG_6491_Quote_Brkdn.rpt",V.Local.iRPTID)
+
+F.Global.BI.StartLogging(V.Local.iBIRunID,V.Local.iRPTID,-1,"",V.Local.iLogID)
+
+F.Intrinsic.BDF.Load("AUX001","AUX001")
+
+F.Intrinsic.BDF.ReadRowCount("AUX001",V.Local.iRows)
+
+F.Intrinsic.Control.For(V.Local.i,1,V.Local.iRows,1)
+	F.Intrinsic.Math.Sub(V.Local.i,1,V.Local.iIndex)
+	V.Local.sData.Redim(0,0)
+	F.Intrinsic.BDF.ReadRow("AUX001",V.Local.iIndex,V.Local.sData)
+
+	F.Intrinsic.String.Split(V.Local.sData,"|~|",V.Local.sData)
+	
+	F.Data.DataTable.AddRow("Quote","BIRUNID",V.Local.iBIRunID,"ROUTER",V.Local.sRouter,"Quantity",V.Local.sData(2),"Description",V.Local.sDesc,"Unit_Price",V.Local.sData(3),"Unit_Cost",V.Local.sData(4),"Gross_Profit",V.Local.sData(5))
+F.Intrinsic.Control.Next(V.Local.i)
+
+F.Intrinsic.Control.If(V.DataTable.Quote.RowCount--,<>,-1)
+	F.Data.DataTable.SaveToDB("Quote","con","GCG_6491_Quote_Brkdn","",128)
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.If(V.DataTable.ROUTER.RowCount--,<>,-1)
+	F.Data.DataTable.SetValue("Router",-1,"BIRUNID",V.Local.iBIRunID)
+	F.Data.DataTable.SaveToDB("Router","con","GCG_6491_Price_Brkdn","",128)
+F.Intrinsic.Control.EndIf
+
+F.Global.BI.StopLogging(V.Local.iLogID)
+
+F.ODBC.Connection!Con.Close
+
+F.Global.BI.RunReportPreProcessor(V.Local.iBIRunID,V.Local.iLogID,"","","",-1,True,"",-1,"",-1,"","",V.Local.iRet)
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Print_Report_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	F.Intrinsic.String.Build("Project: GCG_6491_Quote_Breakdown.g2u {0}{0}Subroutine: {1}{0}Error Occurred {2} with description {3}",V.Ambient.NewLine,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Exit)
+Function.Intrinsic.Control.EndIf
+Program.Sub.Print_Report.End
